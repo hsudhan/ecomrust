@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package ecom;
+
+// ---------------------------------------------------------------------------
+// Shared contract between the Rust tonic handlers and any client stubs
+// (e.g. the Fastify gateway). proto3 rules; evolve additively only
+// (claude.md: enforce backward compatibility on proto files).
+// ---------------------------------------------------------------------------
+
+service OrderService {
+  rpc ListOrders(ListRequest) returns (OrderList);
+  rpc GetOrder(GetRequest) returns (Order);
+}
+
+service ShipmentService {
+  rpc ListShipments(ListRequest) returns (ShipmentList);
+  rpc GetShipment(GetRequest) returns (Shipment);
+}
+
+message ListRequest {
+  int32 page = 1;       // 1-based; defaults to 1 when unset/invalid handled server-side
+  int32 page_size = 2;  // defaults to 50, capped at 200
+  string sort = 3;      // "id" | "order_date" (orders) / "id" | "shipment_date" (shipments)
+  string order = 4;     // "asc" | "desc"
+}
+
+message GetRequest {
+  int64 id = 1;
+}
+
+message Order {
+  int64 id = 1;
+  int32 customer_id = 2;
+  string order_date = 3;    // RFC 3339
+  string status = 4;
+  string total_amount = 5;  // NUMERIC rendered as text (exact, no float loss)
+  string created_at = 6;    // RFC 3339
+  string updated_at = 7;    // RFC 3339
+}
+
+message OrderList {
+  repeated Order data = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  int32 total_records = 4;
+  int32 total_pages = 5;
+  string sort = 6;
+  string order = 7;
+}
+
+message Shipment {
+  int64 id = 1;
+  int32 order_id = 2;
+  string shipment_date = 3; // RFC 3339
+  string shipment_status = 4;
+  string shipment_cost = 5; // NUMERIC rendered as text
+  string created_at = 6;    // RFC 3339
+  string updated_at = 7;    // RFC 3339
+}
+
+message ShipmentList {
+  repeated Shipment data = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  int32 total_records = 4;
+  int32 total_pages = 5;
+  string sort = 6;
+  string order = 7;
+}

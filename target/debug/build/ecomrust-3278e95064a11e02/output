@@ -1,0 +1,2 @@
+cargo:rerun-if-changed=proto/ecom.proto
+cargo:rerun-if-changed=proto

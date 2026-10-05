@@ -24,7 +24,16 @@ Node.js (using Fastify)
 
 ### 1. Cache Loading
 
-* Fetch data from the `orders` and `shipments` tables from the Postgres database.
+* Fetch data from all the below tables from the Postgres database.
+* **ORDERS**
+* **SHIPMENT**
+* **USERS**
+* **LOGIN**
+* **SHOPPING CART**
+* **PAYMENT INFO**
+* **PAYMENT**
+* **SHIPMENT TRACKING**
+
 * Load the data into Redis using a cache layer.
 * Store the data in Redis using a key-value store (e.g., `orders:123` or `shipments:123`).
 
@@ -36,9 +45,16 @@ Node.js (using Fastify)
 	+ `GET /order/:id`: Fetch a single order from Redis cache by ID.
 	+ `GET /shipment/:id`: Fetch a single shipment from Redis cache by ID.
 * APIs should handle pagination and sorting for `GET /orders` and `GET /shipments` endpoints.
-
 orders API should listen on 4001 port
 shipments API should listen on 4002 port 
+
+similarly expose URLs for other tabs also as mentioned below. 
+users API should listen on 4003 port 
+login API should listen on 4004 port 
+shopping_cart API should listen on 4005 port 
+payment_info API should listen on 4006 port 
+payment API should listen on 4007 port 
+shipment_tracking API should listen on 4008 port 
 
 they should be built and run using cargo commands.
 

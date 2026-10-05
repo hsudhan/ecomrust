@@ -1,6 +1,6 @@
 //! Redis cache layer (specs.md #1, #5).
 //!
-//! Key layout per entity (prefix = "orders" | "shipments"):
+//! Key layout per entity (prefix = "orders" | "shipments" | "users" | ...):
 //!   {prefix}:{id}                -> JSON string of the row      (GET by id)
 //!   {prefix}:index:id            -> ZSET score=id,   member=id  (sort by id)
 //!   {prefix}:index:{date_field}  -> ZSET score=epoch ms of the
@@ -10,9 +10,13 @@
 //! single MGET fetches the row documents — no per-row round trips (claude.md
 //! rule #5: avoid N+1 patterns).
 //!
+//! Reads are cache-aside: the REST tier serves from Redis first and, on a
+//! miss (single doc absent or index never loaded), fetches from PostgreSQL
+//! and writes the result back through `load` before responding.
+//!
 //! Note: Redis logical databases are numeric (0-15); "Database: ecomdb" from
 //! specs.md is satisfied by connecting to DB 0 and namespacing every key with
-//! the required prefixes (`orders:`, `shipments:`).
+//! the entity prefixes (`orders:`, `shipments:`, `users:`, ...).
 
 use redis::aio::MultiplexedConnection;
 use redis::AsyncCommands;
@@ -20,13 +24,26 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::error::{AppError, AppResult};
-use crate::models::{OrderJson, OrderRow, PageParams, ShipmentJson, ShipmentRow, SortDir};
+use crate::models::{CacheDoc, PageParams, SortDir};
 
 pub const DEFAULT_REDIS_URL: &str = "redis://localhost:6379/0";
+
 pub const ORDERS_PREFIX: &str = "orders";
-pub const SHIPMENTS_PREFIX: &str = "shipments";
 pub const ORDERS_DATE_FIELD: &str = "order_date";
+pub const SHIPMENTS_PREFIX: &str = "shipments";
 pub const SHIPMENTS_DATE_FIELD: &str = "shipment_date";
+pub const USERS_PREFIX: &str = "users";
+pub const USERS_DATE_FIELD: &str = "created_at";
+pub const LOGINS_PREFIX: &str = "logins";
+pub const LOGINS_DATE_FIELD: &str = "login_date";
+pub const SHOPPING_CARTS_PREFIX: &str = "shopping-carts";
+pub const SHOPPING_CARTS_DATE_FIELD: &str = "created_at";
+pub const PAYMENT_INFOS_PREFIX: &str = "payment-infos";
+pub const PAYMENT_INFOS_DATE_FIELD: &str = "payment_date";
+pub const PAYMENTS_PREFIX: &str = "payments";
+pub const PAYMENTS_DATE_FIELD: &str = "payment_date";
+pub const SHIPMENT_TRACKINGS_PREFIX: &str = "shipment-trackings";
+pub const SHIPMENT_TRACKINGS_DATE_FIELD: &str = "updated_at";
 
 const PIPELINE_BATCH: usize = 5_000;
 
@@ -44,52 +61,40 @@ impl Cache {
 
     // ---------------------------------------------------------- loading ---
 
-    pub async fn load_orders(&self, rows: Vec<OrderRow>) -> AppResult<usize> {
+    /// Load documents into Redis: one JSON key per row plus the id and date
+    /// sort indexes, pipelined in batches. Used for the full seed
+    /// (cache_loader / cold list fallback) and single-doc write-back.
+    pub async fn load(
+        &self,
+        prefix: &str,
+        date_field: &str,
+        docs: &[CacheDoc],
+    ) -> AppResult<usize> {
         let mut conn = self.conn.clone();
-        let count = rows.len();
-        for chunk in rows.chunks(PIPELINE_BATCH) {
+        for chunk in docs.chunks(PIPELINE_BATCH) {
             let mut pipe = redis::pipe();
-            for row in chunk {
-                let json = serde_json::to_string(&OrderJson::from(row.clone()))?;
-                let id = row.id.to_string();
-                let epoch_ms = row.order_date.timestamp_millis();
-                pipe.set(format!("{ORDERS_PREFIX}:{id}"), json).ignore();
-                pipe.zadd(format!("{ORDERS_PREFIX}:index:id"), id.clone(), row.id as f64)
+            for doc in chunk {
+                let id = doc.id.to_string();
+                pipe.set(format!("{prefix}:{id}"), doc.json.clone()).ignore();
+                pipe.zadd(format!("{prefix}:index:id"), id.clone(), doc.id as f64)
                     .ignore();
                 pipe.zadd(
-                    format!("{ORDERS_PREFIX}:index:{ORDERS_DATE_FIELD}"),
+                    format!("{prefix}:index:{date_field}"),
                     id,
-                    epoch_ms as f64,
+                    doc.date_epoch_ms as f64,
                 )
                 .ignore();
             }
             pipe.query_async::<()>(&mut conn).await?;
         }
-        Ok(count)
+        Ok(docs.len())
     }
 
-    pub async fn load_shipments(&self, rows: Vec<ShipmentRow>) -> AppResult<usize> {
+    /// True when the entity's id sort index exists, i.e. the cache has been
+    /// loaded for this entity at least once.
+    pub async fn index_exists(&self, prefix: &str) -> AppResult<bool> {
         let mut conn = self.conn.clone();
-        let count = rows.len();
-        for chunk in rows.chunks(PIPELINE_BATCH) {
-            let mut pipe = redis::pipe();
-            for row in chunk {
-                let json = serde_json::to_string(&ShipmentJson::from(row.clone()))?;
-                let id = row.id.to_string();
-                let epoch_ms = row.shipment_date.timestamp_millis();
-                pipe.set(format!("{SHIPMENTS_PREFIX}:{id}"), json).ignore();
-                pipe.zadd(format!("{SHIPMENTS_PREFIX}:index:id"), id.clone(), row.id as f64)
-                    .ignore();
-                pipe.zadd(
-                    format!("{SHIPMENTS_PREFIX}:index:{SHIPMENTS_DATE_FIELD}"),
-                    id,
-                    epoch_ms as f64,
-                )
-                .ignore();
-            }
-            pipe.query_async::<()>(&mut conn).await?;
-        }
-        Ok(count)
+        Ok(conn.exists(format!("{prefix}:index:id")).await?)
     }
 
     // ---------------------------------------------------------- reading ---
@@ -146,11 +151,18 @@ impl Cache {
         Ok((rows, total))
     }
 
-    /// Single row by id from the cache. 404s when absent.
-    pub async fn get<T: DeserializeOwned>(&self, prefix: &str, id: i64) -> AppResult<T> {
+    /// Raw cached JSON for one row; `None` on cache miss. The REST tier
+    /// serves the stored string verbatim (no re-serialization).
+    pub async fn get_raw(&self, prefix: &str, id: i64) -> AppResult<Option<String>> {
         let mut conn = self.conn.clone();
         let doc: Option<String> = conn.get(format!("{prefix}:{id}")).await?;
-        match doc {
+        Ok(doc)
+    }
+
+    /// Single row by id from the cache, deserialized. 404s when absent.
+    /// Used by the gRPC tier.
+    pub async fn get<T: DeserializeOwned>(&self, prefix: &str, id: i64) -> AppResult<T> {
+        match self.get_raw(prefix, id).await? {
             Some(s) => Ok(serde_json::from_str(&s)?),
             None => Err(AppError::NotFound(format!("{prefix} id {id} not in cache"))),
         }

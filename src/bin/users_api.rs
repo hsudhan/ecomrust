@@ -6,7 +6,7 @@
 //!
 //! Run: cargo run --bin users_api
 
-use ecomrust::cache::{USERS_DATE_FIELD, USERS_PREFIX};
+use ecomrust::cache::{USERS_PREFIX, USERS_SORT_FIELDS};
 use ecomrust::db;
 use ecomrust::rest::{serve, ServiceConfig};
 
@@ -16,7 +16,7 @@ async fn main() -> std::io::Result<()> {
         service_name: "users",
         port: 4003,
         prefix: USERS_PREFIX,
-        date_field: USERS_DATE_FIELD,
+        sort_fields: USERS_SORT_FIELDS,
         list_path: "/users",
         item_path: "/user/{id}",
         fetch_all: db::fetch_all_users,

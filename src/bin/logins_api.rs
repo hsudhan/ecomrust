@@ -5,7 +5,7 @@
 //!
 //! Run: cargo run --bin logins_api
 
-use ecomrust::cache::{LOGINS_DATE_FIELD, LOGINS_PREFIX};
+use ecomrust::cache::{LOGINS_PREFIX, LOGINS_SORT_FIELDS};
 use ecomrust::db;
 use ecomrust::rest::{serve, ServiceConfig};
 
@@ -15,7 +15,7 @@ async fn main() -> std::io::Result<()> {
         service_name: "logins",
         port: 4004,
         prefix: LOGINS_PREFIX,
-        date_field: LOGINS_DATE_FIELD,
+        sort_fields: LOGINS_SORT_FIELDS,
         list_path: "/logins",
         item_path: "/login/{id}",
         fetch_all: db::fetch_all_logins,

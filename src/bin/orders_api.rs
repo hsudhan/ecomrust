@@ -5,7 +5,7 @@
 //!
 //! Run: cargo run --bin orders_api
 
-use ecomrust::cache::{ORDERS_DATE_FIELD, ORDERS_PREFIX};
+use ecomrust::cache::{ORDERS_PREFIX, ORDERS_SORT_FIELDS};
 use ecomrust::db;
 use ecomrust::rest::{serve, ServiceConfig};
 
@@ -15,7 +15,7 @@ async fn main() -> std::io::Result<()> {
         service_name: "orders",
         port: 4001,
         prefix: ORDERS_PREFIX,
-        date_field: ORDERS_DATE_FIELD,
+        sort_fields: ORDERS_SORT_FIELDS,
         list_path: "/orders",
         item_path: "/order/{id}",
         fetch_all: db::fetch_all_orders,

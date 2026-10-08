@@ -5,7 +5,7 @@
 //!
 //! Run: cargo run --bin shipment_trackings_api
 
-use ecomrust::cache::{SHIPMENT_TRACKINGS_DATE_FIELD, SHIPMENT_TRACKINGS_PREFIX};
+use ecomrust::cache::{SHIPMENT_TRACKINGS_PREFIX, SHIPMENT_TRACKINGS_SORT_FIELDS};
 use ecomrust::db;
 use ecomrust::rest::{serve, ServiceConfig};
 
@@ -15,7 +15,7 @@ async fn main() -> std::io::Result<()> {
         service_name: "shipment-trackings",
         port: 4008,
         prefix: SHIPMENT_TRACKINGS_PREFIX,
-        date_field: SHIPMENT_TRACKINGS_DATE_FIELD,
+        sort_fields: SHIPMENT_TRACKINGS_SORT_FIELDS,
         list_path: "/shipment-trackings",
         item_path: "/shipment-tracking/{id}",
         fetch_all: db::fetch_all_shipment_trackings,

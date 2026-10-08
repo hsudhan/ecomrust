@@ -5,7 +5,7 @@
 //!
 //! Run: cargo run --bin shopping_carts_api
 
-use ecomrust::cache::{SHOPPING_CARTS_DATE_FIELD, SHOPPING_CARTS_PREFIX};
+use ecomrust::cache::{SHOPPING_CARTS_PREFIX, SHOPPING_CARTS_SORT_FIELDS};
 use ecomrust::db;
 use ecomrust::rest::{serve, ServiceConfig};
 
@@ -15,7 +15,7 @@ async fn main() -> std::io::Result<()> {
         service_name: "shopping-carts",
         port: 4005,
         prefix: SHOPPING_CARTS_PREFIX,
-        date_field: SHOPPING_CARTS_DATE_FIELD,
+        sort_fields: SHOPPING_CARTS_SORT_FIELDS,
         list_path: "/shopping-carts",
         item_path: "/shopping-cart/{id}",
         fetch_all: db::fetch_all_shopping_carts,

@@ -304,23 +304,22 @@ impl From<ShipmentTrackingRow> for ShipmentTrackingJson {
 
 // ---------------------------------------------------------- cache doc -----
 
-/// A single cached document: the serialized JSON blob plus the metadata the
-/// cache layer needs to maintain its sort indexes (id score + date score).
+/// A single cached document: the serialized JSON blob. The cache layer
+/// derives every sort-index entry from the JSON itself (see cache.rs), so
+/// no extra metadata is carried here.
 #[derive(Debug, Clone)]
 pub struct CacheDoc {
     pub id: i64,
-    pub date_epoch_ms: i64,
     pub json: String,
 }
 
 macro_rules! impl_cache_doc {
-    ($row:ty, $json:ty, $date:ident) => {
+    ($row:ty, $json:ty) => {
         impl $row {
-            /// Serialized doc + sort-index metadata for the Redis cache.
+            /// Serialized doc for the Redis cache.
             pub fn cache_doc(&self) -> crate::error::AppResult<CacheDoc> {
                 Ok(CacheDoc {
                     id: self.id,
-                    date_epoch_ms: self.$date.timestamp_millis(),
                     json: serde_json::to_string(&<$json>::from(self.clone()))?,
                 })
             }
@@ -328,14 +327,14 @@ macro_rules! impl_cache_doc {
     };
 }
 
-impl_cache_doc!(OrderRow, OrderJson, order_date);
-impl_cache_doc!(ShipmentRow, ShipmentJson, shipment_date);
-impl_cache_doc!(UserRow, UserJson, created_at);
-impl_cache_doc!(LoginRow, LoginJson, login_date);
-impl_cache_doc!(ShoppingCartRow, ShoppingCartJson, created_at);
-impl_cache_doc!(PaymentInfoRow, PaymentInfoJson, payment_date);
-impl_cache_doc!(PaymentRow, PaymentJson, payment_date);
-impl_cache_doc!(ShipmentTrackingRow, ShipmentTrackingJson, updated_at);
+impl_cache_doc!(OrderRow, OrderJson);
+impl_cache_doc!(ShipmentRow, ShipmentJson);
+impl_cache_doc!(UserRow, UserJson);
+impl_cache_doc!(LoginRow, LoginJson);
+impl_cache_doc!(ShoppingCartRow, ShoppingCartJson);
+impl_cache_doc!(PaymentInfoRow, PaymentInfoJson);
+impl_cache_doc!(PaymentRow, PaymentJson);
+impl_cache_doc!(ShipmentTrackingRow, ShipmentTrackingJson);
 
 // --------------------------------------------------------- pagination -----
 
@@ -351,6 +350,32 @@ pub struct PageParams {
     pub page_size: i64, // 1..=200
     pub sort: String,   // validated against the entity's allow-list
     pub dir: SortDir,
+}
+
+// ------------------------------------------------------------ sorting -----
+
+/// Sortable-column kind: decides the Redis index encoding (cache.rs).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortKind {
+    /// ZSET score = numeric value (integer ids/fks, NUMERIC-as-text amounts),
+    /// member = id. Pages read with ZRANGE/ZREVRANGE.
+    Num,
+    /// ZSET score = epoch ms of the RFC 3339 timestamp, member = id.
+    /// Pages read with ZRANGE/ZREVRANGE.
+    Date,
+    /// Lexicographic ZSET: score 0 for every member, member =
+    /// "{value}:{id:020}" so ordering is value-then-id and pages are read
+    /// with ZRANGEBYLEX/ZREVRANGEBYLEX ... LIMIT offset count.
+    Str,
+}
+
+/// One sortable column of an entity's cache index set. The `id` column is
+/// universal and indexed separately, so entities list only their non-id
+/// sortable columns here.
+#[derive(Debug, Clone, Copy)]
+pub struct SortField {
+    pub name: &'static str,
+    pub kind: SortKind,
 }
 
 impl Default for PageParams {

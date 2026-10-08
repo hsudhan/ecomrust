@@ -5,7 +5,7 @@
 //!
 //! Run: cargo run --bin payments_api
 
-use ecomrust::cache::{PAYMENTS_DATE_FIELD, PAYMENTS_PREFIX};
+use ecomrust::cache::{PAYMENTS_PREFIX, PAYMENTS_SORT_FIELDS};
 use ecomrust::db;
 use ecomrust::rest::{serve, ServiceConfig};
 
@@ -15,7 +15,7 @@ async fn main() -> std::io::Result<()> {
         service_name: "payments",
         port: 4007,
         prefix: PAYMENTS_PREFIX,
-        date_field: PAYMENTS_DATE_FIELD,
+        sort_fields: PAYMENTS_SORT_FIELDS,
         list_path: "/payments",
         item_path: "/payment/{id}",
         fetch_all: db::fetch_all_payments,

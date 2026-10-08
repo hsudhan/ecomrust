@@ -12,7 +12,7 @@ use sqlx::PgPool;
 use crate::cache::{Cache, DEFAULT_REDIS_URL};
 use crate::db::{self, FetchAll, FetchOne, DEFAULT_DATABASE_URL};
 use crate::error::{AppError, AppResult};
-use crate::models::{PageParams, SortDir};
+use crate::models::{PageParams, SortDir, SortField};
 
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
@@ -71,14 +71,14 @@ pub fn list_body(rows: Vec<Value>, total: i64, params: &PageParams) -> Value {
 /// cache-aside reads are identical across entities.
 #[derive(Clone)]
 pub struct ServiceConfig {
-    pub service_name: &'static str, // "orders"   (logs + /health)
-    pub port: u16,                  // 4001
-    pub prefix: &'static str,       // Redis key prefix
-    pub date_field: &'static str,   // sortable date column
-    pub list_path: &'static str,    // "/orders"
-    pub item_path: &'static str,    // "/order/{id}"
-    pub fetch_all: FetchAll,        // cold-cache full-table load
-    pub fetch_one: FetchOne,        // single-doc cache miss
+    pub service_name: &'static str,      // "orders"   (logs + /health)
+    pub port: u16,                       // 4001
+    pub prefix: &'static str,            // Redis key prefix
+    pub sort_fields: &'static [SortField], // sortable columns (besides id)
+    pub list_path: &'static str,         // "/orders"
+    pub item_path: &'static str,         // "/order/{id}"
+    pub fetch_all: FetchAll,             // cold-cache full-table load
+    pub fetch_one: FetchOne,             // single-doc cache miss
 }
 
 struct AppState {
@@ -96,13 +96,13 @@ async fn list_handler(
     // Cold cache: entity never loaded -> seed it from the database table.
     if !state.cache.index_exists(cfg.prefix).await? {
         let docs = (cfg.fetch_all)(&state.pool).await?;
-        let n = state.cache.load(cfg.prefix, cfg.date_field, &docs).await?;
+        let n = state.cache.reload(cfg.prefix, cfg.sort_fields, &docs).await?;
         println!(
             "{} API: cold cache -> loaded {n} rows from PostgreSQL ({}:*)",
             cfg.service_name, cfg.prefix
         );
     }
-    let (rows, total) = state.cache.list(cfg.prefix, cfg.date_field, &params).await?;
+    let (rows, total) = state.cache.list(cfg.prefix, cfg.sort_fields, &params).await?;
     Ok(HttpResponse::Ok().json(list_body(rows, total, &params)))
 }
 
@@ -126,13 +126,27 @@ async fn item_handler(
                 })?;
             state
                 .cache
-                .load(cfg.prefix, cfg.date_field, std::slice::from_ref(&doc))
+                .load(cfg.prefix, cfg.sort_fields, std::slice::from_ref(&doc))
                 .await?;
             doc.json
         }
     };
     // Serve the stored JSON verbatim (no re-serialization).
     Ok(HttpResponse::Ok().content_type("application/json").body(json))
+}
+
+/// POST {list_path}/reload-cache: re-fetch the entity's full PostgreSQL
+/// table and overwrite its Redis keys (`{prefix}:*`) with the fresh rows.
+/// Existing keys are overwritten, never deleted. Returns the row count.
+async fn reload_handler(state: web::Data<AppState>) -> AppResult<HttpResponse> {
+    let cfg = &state.config;
+    let docs = (cfg.fetch_all)(&state.pool).await?;
+    let n = state.cache.reload(cfg.prefix, cfg.sort_fields, &docs).await?;
+    println!(
+        "{} API: reload-cache -> reloaded {n} rows from PostgreSQL ({}:*)",
+        cfg.service_name, cfg.prefix
+    );
+    Ok(HttpResponse::Ok().json(json!({ "reloaded": n, "entity": cfg.prefix })))
 }
 
 #[get("/health")]
@@ -156,6 +170,7 @@ pub async fn serve(config: ServiceConfig) -> std::io::Result<()> {
     let port = config.port;
     let list_path = config.list_path;
     let item_path = config.item_path;
+    let reload_path: &'static str = Box::leak(format!("{list_path}/reload-cache").into_boxed_str());
     let state = web::Data::new(AppState { config, cache, pool });
 
     println!("{name} API listening on http://0.0.0.0:{port} (Redis: {redis_url}, PostgreSQL: {db_url})");
@@ -164,6 +179,7 @@ pub async fn serve(config: ServiceConfig) -> std::io::Result<()> {
             .app_data(state.clone())
             .route(list_path, web::get().to(list_handler))
             .route(item_path, web::get().to(item_handler))
+            .route(reload_path, web::post().to(reload_handler))
             .service(health)
     })
     .bind(("0.0.0.0", port))?

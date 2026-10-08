@@ -3,7 +3,7 @@
 
 use tonic::{Request, Response, Status};
 
-use crate::cache::{Cache, ORDERS_DATE_FIELD, ORDERS_PREFIX, SHIPMENTS_DATE_FIELD, SHIPMENTS_PREFIX};
+use crate::cache::{Cache, ORDERS_PREFIX, ORDERS_SORT_FIELDS, SHIPMENTS_PREFIX, SHIPMENTS_SORT_FIELDS};
 use crate::error::AppError;
 use crate::models::{OrderJson, PageParams, ShipmentJson, SortDir};
 use crate::pb;
@@ -80,7 +80,7 @@ impl pb::order_service_server::OrderService for OrderGrpc {
         let params = grpc_params(request.get_ref())?;
         let (rows, total) = self
             .cache
-            .list(ORDERS_PREFIX, ORDERS_DATE_FIELD, &params)
+            .list(ORDERS_PREFIX, ORDERS_SORT_FIELDS, &params)
             .await
             .map_err(Status::from)?;
         let data = rows
@@ -138,7 +138,7 @@ impl pb::shipment_service_server::ShipmentService for ShipmentGrpc {
         let params = grpc_params(request.get_ref())?;
         let (rows, total) = self
             .cache
-            .list(SHIPMENTS_PREFIX, SHIPMENTS_DATE_FIELD, &params)
+            .list(SHIPMENTS_PREFIX, SHIPMENTS_SORT_FIELDS, &params)
             .await
             .map_err(Status::from)?;
         let data = rows

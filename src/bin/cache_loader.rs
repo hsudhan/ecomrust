@@ -6,13 +6,14 @@
 //! Run: cargo run --bin cache_loader
 
 use ecomrust::cache::{
-    Cache, DEFAULT_REDIS_URL, LOGINS_DATE_FIELD, LOGINS_PREFIX, ORDERS_DATE_FIELD, ORDERS_PREFIX,
-    PAYMENT_INFOS_DATE_FIELD, PAYMENT_INFOS_PREFIX, PAYMENTS_DATE_FIELD, PAYMENTS_PREFIX,
-    SHIPMENT_TRACKINGS_DATE_FIELD, SHIPMENT_TRACKINGS_PREFIX, SHIPMENTS_DATE_FIELD,
-    SHIPMENTS_PREFIX, SHOPPING_CARTS_DATE_FIELD, SHOPPING_CARTS_PREFIX, USERS_DATE_FIELD,
-    USERS_PREFIX,
+    Cache, DEFAULT_REDIS_URL, LOGINS_PREFIX, LOGINS_SORT_FIELDS, ORDERS_PREFIX, ORDERS_SORT_FIELDS,
+    PAYMENT_INFOS_PREFIX, PAYMENT_INFOS_SORT_FIELDS, PAYMENTS_PREFIX, PAYMENTS_SORT_FIELDS,
+    SHIPMENT_TRACKINGS_PREFIX, SHIPMENT_TRACKINGS_SORT_FIELDS, SHIPMENTS_PREFIX,
+    SHIPMENTS_SORT_FIELDS, SHOPPING_CARTS_PREFIX, SHOPPING_CARTS_SORT_FIELDS, USERS_PREFIX,
+    USERS_SORT_FIELDS,
 };
 use ecomrust::db::{self, FetchAll, DEFAULT_DATABASE_URL};
+use ecomrust::models::SortField;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -24,36 +25,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cache_loader: connecting to Redis ({redis_url})");
     let cache = Cache::connect(&redis_url).await?;
 
-    let entities: [(&str, &str, FetchAll); 8] = [
-        (ORDERS_PREFIX, ORDERS_DATE_FIELD, db::fetch_all_orders),
-        (SHIPMENTS_PREFIX, SHIPMENTS_DATE_FIELD, db::fetch_all_shipments),
-        (USERS_PREFIX, USERS_DATE_FIELD, db::fetch_all_users),
-        (LOGINS_PREFIX, LOGINS_DATE_FIELD, db::fetch_all_logins),
+    let entities: [(&str, &[SortField], FetchAll); 8] = [
+        (ORDERS_PREFIX, ORDERS_SORT_FIELDS, db::fetch_all_orders),
+        (SHIPMENTS_PREFIX, SHIPMENTS_SORT_FIELDS, db::fetch_all_shipments),
+        (USERS_PREFIX, USERS_SORT_FIELDS, db::fetch_all_users),
+        (LOGINS_PREFIX, LOGINS_SORT_FIELDS, db::fetch_all_logins),
         (
             SHOPPING_CARTS_PREFIX,
-            SHOPPING_CARTS_DATE_FIELD,
+            SHOPPING_CARTS_SORT_FIELDS,
             db::fetch_all_shopping_carts,
         ),
         (
             PAYMENT_INFOS_PREFIX,
-            PAYMENT_INFOS_DATE_FIELD,
+            PAYMENT_INFOS_SORT_FIELDS,
             db::fetch_all_payment_infos,
         ),
-        (PAYMENTS_PREFIX, PAYMENTS_DATE_FIELD, db::fetch_all_payments),
+        (PAYMENTS_PREFIX, PAYMENTS_SORT_FIELDS, db::fetch_all_payments),
         (
             SHIPMENT_TRACKINGS_PREFIX,
-            SHIPMENT_TRACKINGS_DATE_FIELD,
+            SHIPMENT_TRACKINGS_SORT_FIELDS,
             db::fetch_all_shipment_trackings,
         ),
     ];
 
-    for (prefix, date_field, fetch) in entities {
+    for (prefix, sort_fields, fetch) in entities {
         let docs = fetch(&pool).await?;
         println!(
             "cache_loader: fetched {} {prefix} from PostgreSQL",
             docs.len()
         );
-        let n = cache.load(prefix, date_field, &docs).await?;
+        let n = cache.reload(prefix, sort_fields, &docs).await?;
         println!("cache_loader: loaded {n} {prefix} into Redis ({prefix}:*)");
     }
 

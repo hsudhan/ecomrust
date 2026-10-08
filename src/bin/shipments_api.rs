@@ -5,7 +5,7 @@
 //!
 //! Run: cargo run --bin shipments_api
 
-use ecomrust::cache::{SHIPMENTS_DATE_FIELD, SHIPMENTS_PREFIX};
+use ecomrust::cache::{SHIPMENTS_PREFIX, SHIPMENTS_SORT_FIELDS};
 use ecomrust::db;
 use ecomrust::rest::{serve, ServiceConfig};
 
@@ -15,7 +15,7 @@ async fn main() -> std::io::Result<()> {
         service_name: "shipments",
         port: 4002,
         prefix: SHIPMENTS_PREFIX,
-        date_field: SHIPMENTS_DATE_FIELD,
+        sort_fields: SHIPMENTS_SORT_FIELDS,
         list_path: "/shipments",
         item_path: "/shipment/{id}",
         fetch_all: db::fetch_all_shipments,
